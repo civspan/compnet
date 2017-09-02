@@ -11,10 +11,17 @@
 
 #include <stdio.h>
 #include <stddef.h>
-
+#include <stdlib.h>
 #include <assert.h>
 #include <limits.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <errno.h>
+
 
 //--//////////////////////////////////////////////////////////////////////////
 //--    local declarations          ///{{{1///////////////////////////////////
@@ -62,9 +69,45 @@ int main( int aArgc, char* aArgv[] )
 
 	// Print the initial message
 	printf( "Resolving `%s' from `%s':\n", remoteHostName, localHostName );
+	printf("test");
+/////// TODO : add your code here /////////////////////////////////////////////
+	struct addrinfo *result;
+	struct addrinfo hints;
+	/* Obtain address(es) matching host/port */
+	printf("test");
+	memset(&hints, 0, sizeof(struct addrinfo));
+	printf("test");
+	hints.ai_family = AF_INET;    /* Allow IPv4 */
+        hints.ai_socktype =  SOCK_STREAM; /* TCP only */
+        hints.ai_flags = 0;
+        hints.ai_protocol = IPPROTO_TCP;          /* TCP only */
+	hints.ai_canonname = 0;
+	hints.ai_addr = 0;
+	hints.ai_next = 0;
 
-	// TODO : add your code here
+	int s = getaddrinfo(remoteHostName, NULL, &hints, &result);
+	if (s != 0) { /*error handling */
+	  fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+	  exit(EXIT_FAILURE);
+	}
+	sockaddr* sockAddr = result->ai_addr; /*get pointer to sockaddr from result struct*/
+	assert( AF_INET == sockAddr->sa_family ); /*test to see sa_family is IPv4*/
+	sockaddr_in* inAddr = (sockaddr_in*)sockAddr; /*cast to sockaddr_in*/
+	//	int port = inAddr->sin_port; /*get port..*/
+	uint32_t ipNumber = inAddr->sin_addr.s_addr /*.. and ip*/;
+	printf("fukin wooork");
+	char* addr_string;
+	if(inet_ntop(AF_INET, &ipNumber, addr_string, INET_ADDRSTRLEN) != NULL){
+	  printf("%s has address %s", remoteHostName, addr_string);
+	}else {
+	  printf("Quitting, error: %s", strerror(errno));
+	  exit(-1);
+	}
+	freeaddrinfo(result);           /* Free mem */	
 
+	
+	
+/////// END OF TODO ///////////////////////////////////////////////////////////	
 	// Ok, we're done. Return success.
 	return 0;
 }
