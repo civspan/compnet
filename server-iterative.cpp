@@ -91,6 +91,15 @@ struct ConnectionData
 	char buffer[kTransferBufferSize+1];
 };
 
+/* Per-connection node for linked list
+ * Each node in the linked list points to connection data and the next data
+ * in the list of connections.
+ */
+struct ConnectionList{
+	ConnectionData* cData;
+	ConnectionList* next;
+};
+
 //--    prototypes          ///{{{1///////////////////////////////////////////
 
 /* Receive data and place it in the connection's buffer.
@@ -140,9 +149,29 @@ static bool is_invalid_connection( const ConnectionData& cd );
  */
 static int setup_server_socket( short port );
 
+/* Push new connection data into connection list and set tail to the new connection
+ */
+static void push(ConnectionList* cl, ConnectionData* cd);
+
+/* Return head from connection list and remove it from the list
+ */
+static ConnectionData* pop(ConnectionList* cl);
+
+/* Check if list is empty (from cl onwards, intended use with head of list)
+ */
+static bool isEmpty(ConnectionList* cl);
+
+/* Check if there are more connections in the connection list
+ */
+static bool hasNext(ConnectionList* cl);
+
 //--    main()              ///{{{1///////////////////////////////////////////
 int main( int argc, char* argv[] )
 {
+	//om push kallas med head == NULL, sätt head till nya datan (isEmpty())
+	static ConnectionList* head = NULL; 
+	static ConnectionList* tail = NULL;
+
 	int serverPort = kServerPort;
 
 	// did the user specify a port?
@@ -401,4 +430,41 @@ static bool is_invalid_connection( const ConnectionData& cd )
 	return cd.sock == -1;
 }
 
+//--    push()   ///{{{1///////////////////////////////////////
+static void push(ConnectionList* tail, ConnectionData* cd){
+	if(isEmpty(tail)){
+		tail->cData = cd;
+		tail->next = NULL;
+	} else {
+		ConnectionList list;
+		list.cData = cd;
+		list.next = NULL;
+		tail->next = &list;
+		tail = &list;
+	}
+}
+
+//--    pop()   ///{{{1///////////////////////////////////////
+static ConnectionData* pop(ConnectionList* head){
+	if(isEmpty(head)) return 0;
+
+	ConnectionData* tempData = head->cData;
+	ConnectionList* tempList = head->next;
+
+	//Enough to free memory?
+	head = NULL;
+	head = tempList;
+
+	return tempData;
+}
+
+//--    isEmpty()   ///{{{1///////////////////////////////////////
+static bool isEmpty(ConnectionList* cl){
+	return cl->cData == NULL;
+}
+
+//--    hasNext()   ///{{{1///////////////////////////////////////
+static bool hasNext(ConnectionList* cl){
+	return cl->next != NULL;
+}
 //--///}}}1//////////////// vim:syntax=cpp:foldmethod=marker:ts=4:noexpandtab: 
