@@ -244,7 +244,7 @@ int main( int argc, char* argv[] )
 			connData.sock = clientfd;
 			connData.state = eConnStateReceiving;
 			
-			push(connData);
+			push(list,connData);
 
 			// Repeatedly receive and re-send data from the connection. When
 			// the connection closes, process_client_*() will return false, no
@@ -449,7 +449,7 @@ static bool is_invalid_connection( const ConnectionData& cd )
 }
 
 //--    push()   ///{{{1///////////////////////////////////////
-static void push(ConnectionData* cd){
+static void push(ConnectionList* tail, ConnectionData* cd){
 	if(isEmpty(tail)){
 		tail->cData = cd;
 		tail->next = NULL;
@@ -463,10 +463,11 @@ static void push(ConnectionData* cd){
 }
 
 //--    pop()   ///{{{1///////////////////////////////////////
-static ConnectionData* remove(){
+static ConnectionData* pop(ConnectionList* head){
+	if(isEmpty(head)) return 0;
 
 	ConnectionData* tempData = head->cData;
-	ConnectionList* tempnext = head->next;
+	ConnectionList* tempList = head->next;
 
 	//Enough to free memory?
 	head = NULL;
