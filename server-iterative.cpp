@@ -193,18 +193,19 @@ int main( int argc, char* argv[] )
 	if( -1 == listenfd )
 		return 1;
 
+
+	fd_set readfds;
+	struct timeval tv;
+	tv.tv_sec = 1;
+	tv.tv_usec = 0;
+	
 	// loop forever
 	while( 1 )
 	{
-		sockaddr_in clientAddr;
-		socklen_t addrSize = sizeof(clientAddr);
-
-		fd_set readfds;
-		struct timeval tv;
-		tv.tv_sec = 1;
-		tv.tv_usec = 0;
 		FD_ZERO(&readfds);
 		FD_SET(listenfd,&readfds);
+		sockaddr_in clientAddr;
+		socklen_t addrSize = sizeof(clientAddr);
 		int retVal = select(listenfd+1,&readfds,NULL,NULL,&tv);
 		if( -1 == retVal){
 			perror("select() failed");
