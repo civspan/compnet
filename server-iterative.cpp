@@ -101,8 +101,6 @@ struct Node{
 	Node* next;
 };
 
-static Node* head;
-static Node* tail;
 
 //--    prototypes          ///{{{1///////////////////////////////////////////
 
@@ -155,15 +153,15 @@ static int setup_server_socket( short port );
 
 /* Push new connection data into connection list and set tail to the new connection
  */
-static void push(ConnectionData* cd);
+static void push(ConnectionData* cd, Node* t);
 
 /* Remove connection and point prev.next to cl.next, and next.prev to cl.prev
  */
-static void remove(ConnectionData* cd);
+static void remove(ConnectionData* cd, Node* h);
 
 /* Check if list is empty (from cl onwards, intended use with head of list)
  */
-static bool isEmpty(Node* cl);
+static bool isEmpty(Node* h, Node* t);
 
 /* Check if there are more connections in the connection list
  */
@@ -171,12 +169,14 @@ static bool hasNext(Node* cl);
 
 //--    main()              ///{{{1///////////////////////////////////////////
 int main( int argc, char* argv[] )
-{
+{	
+	Node* head = (Node *) malloc(sizeof(Node));
+	Node* tail = (Node *) malloc(sizeof(Node));
 	head->cData = NULL;
-	head->next = tail;
 	tail->cData = NULL;
 	tail->prev = head;
-
+	head->next = tail;
+	
 	int serverPort = kServerPort;
 
 	// did the user specify a port?
@@ -239,7 +239,7 @@ int main( int argc, char* argv[] )
 			if( !set_socket_nonblocking( clientfd ) )
 				continue;
 		#			endif
-
+		
 			// initialize connection data
 			ConnectionData connData;
 			memset( &connData, 0, sizeof(connData) );
@@ -247,7 +247,7 @@ int main( int argc, char* argv[] )
 			connData.sock = clientfd;
 			connData.state = eConnStateReceiving;
 			
-			push(&connData);
+			push(&connData,tail);
 
 			// Repeatedly receive and re-send data from the connection. When
 			// the connection closes, process_client_*() will return false, no
@@ -263,7 +263,7 @@ int main( int argc, char* argv[] )
 			}
 
 			// done - close connection
-			remove(&connData);
+			remove(&connData,head);
 			close( connData.sock );
 		}
 	}
@@ -453,28 +453,36 @@ static bool is_invalid_connection( const ConnectionData& cd )
 }
 
 //--    push()   ///{{{1///////////////////////////////////////
-static void push(ConnectionData* cd){
+static void push(ConnectionData* cd, Node* tail){
+	Node* temp = (Node *) malloc(sizeof(Node));
+	temp->cData = cd;
+	temp->next = tail;
+	temp->prev = tail->prev;
 	
+	tail->prev->next = temp;
+	tail->prev = temp;
 }
 
 //--    remove()   ///{{{1///////////////////////////////////////
-static void remove(ConnectionData* cd){
+static void remove(ConnectionData* cd, Node* head){
 	Node* temp = head;
 
 	while(hasNext(temp)){
 		temp = temp->next;
-		if(temp->cData == cd) break;
-	}
-	temp->prev->next = temp->next;
-	temp->next->prev = temp->prev;
+		if(temp->cData == cd){
+			temp->prev->next = temp->next;
+			temp->next->prev = temp->prev;
 
-	//Enough to free memory?
-	temp = NULL;
+			//Enough to free memory?
+			free(temp);
+			break;
+		}
+	}
 }
 
 //--    isEmpty()   ///{{{1///////////////////////////////////////
-static bool isEmpty(Node* cl){
-	return cl->cData == NULL;
+static bool isEmpty(Node* head, Node* tail){
+	return head->next == tail;
 }
 
 //--    hasNext()   ///{{{1///////////////////////////////////////
