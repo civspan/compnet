@@ -95,14 +95,14 @@ struct ConnectionData
  * Each node in the linked list points to connection data and the next data
  * in the list of connections.
  */
-struct ConnectionList{
+struct Node{
 	ConnectionData* cData;
-	ConnectionList* prev;
-	ConnectionList* next;
+	Node* prev;
+	Node* next;
 };
 
-static ConnectionList* head;
-static ConnectionList* tail;
+static Node* head;
+static Node* tail;
 
 //--    prototypes          ///{{{1///////////////////////////////////////////
 
@@ -155,25 +155,27 @@ static int setup_server_socket( short port );
 
 /* Push new connection data into connection list and set tail to the new connection
  */
-static void push(ConnectionList* cl, ConnectionData* cd);
+static void push(ConnectionData* cd);
 
 /* Remove connection and point prev.next to cl.next, and next.prev to cl.prev
  */
-static ConnectionData* remove(ConnectionList* cl);
+static void remove(ConnectionData* cd);
 
 /* Check if list is empty (from cl onwards, intended use with head of list)
  */
-static bool isEmpty(ConnectionList* cl);
+static bool isEmpty(Node* cl);
 
 /* Check if there are more connections in the connection list
  */
-static bool hasNext(ConnectionList* cl);
+static bool hasNext(Node* cl);
 
 //--    main()              ///{{{1///////////////////////////////////////////
 int main( int argc, char* argv[] )
 {
-	head = NULL;
-	tail = NULL;
+	head->cData = NULL;
+	head->next = tail;
+	tail->cData = NULL;
+	tail->prev = head;
 
 	int serverPort = kServerPort;
 
@@ -245,7 +247,7 @@ int main( int argc, char* argv[] )
 			connData.sock = clientfd;
 			connData.state = eConnStateReceiving;
 			
-			push(connData);
+			push(&connData);
 
 			// Repeatedly receive and re-send data from the connection. When
 			// the connection closes, process_client_*() will return false, no
@@ -261,6 +263,7 @@ int main( int argc, char* argv[] )
 			}
 
 			// done - close connection
+			remove(&connData);
 			close( connData.sock );
 		}
 	}
@@ -451,38 +454,31 @@ static bool is_invalid_connection( const ConnectionData& cd )
 
 //--    push()   ///{{{1///////////////////////////////////////
 static void push(ConnectionData* cd){
-	if(isEmpty(tail)){
-		tail->cData = cd;
-		tail->next = NULL;
-	} else {
-		ConnectionList list;
-		list.cData = cd;
-		list.next = NULL;
-		tail->next = &list;
-		tail = &list;
-	}
+	
 }
 
-//--    pop()   ///{{{1///////////////////////////////////////
-static ConnectionData* remove(){
+//--    remove()   ///{{{1///////////////////////////////////////
+static void remove(ConnectionData* cd){
+	Node* temp = head;
 
-	ConnectionData* tempData = head->cData;
-	ConnectionList* tempnext = head->next;
+	while(hasNext(temp)){
+		temp = temp->next;
+		if(temp->cData == cd) break;
+	}
+	temp->prev->next = temp->next;
+	temp->next->prev = temp->prev;
 
 	//Enough to free memory?
-	head = NULL;
-	head = tempList;
-
-	return tempData;
+	temp = NULL;
 }
 
 //--    isEmpty()   ///{{{1///////////////////////////////////////
-static bool isEmpty(ConnectionList* cl){
+static bool isEmpty(Node* cl){
 	return cl->cData == NULL;
 }
 
 //--    hasNext()   ///{{{1///////////////////////////////////////
-static bool hasNext(ConnectionList* cl){
+static bool hasNext(Node* cl){
 	return cl->next != NULL;
 }
 //--///}}}1//////////////// vim:syntax=cpp:foldmethod=marker:ts=4:noexpandtab: 
