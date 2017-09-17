@@ -157,7 +157,7 @@ static void push(ConnectionData* cd, Node* t);
 
 /* Remove connection and point prev.next to cl.next, and next.prev to cl.prev
  */
-static void remove(ConnectionData* cd, Node* h);
+static void remove(Node* h);
 
 /* Check if list is empty (from cl onwards, intended use with head of list)
  */
@@ -165,7 +165,7 @@ static bool isEmpty(Node* h, Node* t);
 
 /* Check if there are more connections in the connection list
  */
-static bool hasNext(Node* cl);
+static bool hasNext(Node* n);
 
 //--    main()              ///{{{1///////////////////////////////////////////
 int main( int argc, char* argv[] )
@@ -197,6 +197,7 @@ int main( int argc, char* argv[] )
 
 
 	fd_set readfds;
+	fd_set writefds;
 	struct timeval tv;
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
@@ -240,7 +241,6 @@ int main( int argc, char* argv[] )
 				continue;
 		#			endif
 		
-			// initialize connection data
 			ConnectionData connData;
 			memset( &connData, 0, sizeof(connData) );
 
@@ -248,11 +248,49 @@ int main( int argc, char* argv[] )
 			connData.state = eConnStateReceiving;
 			
 			push(&connData,tail);
+		}
+		
+/*			FD_ZERO(&readfds);
+			FD_SET(clientfd,&readfds);
+			int retVal = select(clientfd+1,&readfds,NULL,NULL,&tv);
+			if( -1 == retVal){
+				perror("select() failed on clientfd");
+			} else if ( retVal > 0 && FD_ISSET(clientfd,&readfds)) {	*/		
+				// initialize connection data
 
-			// Repeatedly receive and re-send data from the connection. When
-			// the connection closes, process_client_*() will return false, no
-			// further processing is done.
-			bool processFurther = true;
+				// Repeatedly receive and re-send data from the connection. When
+				// the connection closes, process_client_*() will return false, no
+				// further processing is done.
+		Node* temp = head;
+		while(hasNext(temp)){
+			temp = temp->next;
+			FD_ZERO(&readfds);
+			FD_SET(temp->cData->sock,&readfds);
+			FD_ZERO(&writefds);
+			FD_SET(temp->cData->sock,&writefds);
+			retVal = select(temp->cData->sock+1,&readfds,&writefds,NULL,&tv);
+			if(retVal == -1) perror("select() on list failed");
+			else if (retVal > 0) {
+				if(temp->cData->state == eConnStateReceiving &&
+					FD_ISSET(temp->cData->sock,&readfds)){
+					if(!process_client_recv(*(temp->cData))){
+						Node* tempPrev = temp->prev;
+						close(temp->cData->sock);
+						remove(temp);
+						temp = tempPrev;
+					}
+				}
+				if(temp->cData->state == eConnStateSending &&
+					FD_ISSET(temp->cData->sock,&writefds)){
+					if(!process_client_send(*(temp->cData))) {
+						Node* tempPrev = temp->prev;
+						close(temp->cData->sock);
+						remove(temp);
+						temp = tempPrev;
+					}
+				} // TODO: EFTERKOMMANDE ANSLUTNINGAR "TAR ÖVER"
+			}
+/*			bool processFurther = true;
 			while( processFurther )
 			{
 				while( processFurther && connData.state == eConnStateReceiving )
@@ -261,10 +299,9 @@ int main( int argc, char* argv[] )
 				while( processFurther && connData.state == eConnStateSending )
 					processFurther = process_client_send( connData );
 			}
-
 			// done - close connection
 			remove(&connData,head);
-			close( connData.sock );
+			;*/
 		}
 	}
 
@@ -458,26 +495,17 @@ static void push(ConnectionData* cd, Node* tail){
 	temp->cData = cd;
 	temp->next = tail;
 	temp->prev = tail->prev;
-	
+	printf("Vet ej");
 	tail->prev->next = temp;
 	tail->prev = temp;
 }
 
 //--    remove()   ///{{{1///////////////////////////////////////
-static void remove(ConnectionData* cd, Node* head){
-	Node* temp = head;
+static void remove(Node* node){
+	node->prev->next = node->next;
+	node->next->prev = node->prev;
 
-	while(hasNext(temp)){
-		temp = temp->next;
-		if(temp->cData == cd){
-			temp->prev->next = temp->next;
-			temp->next->prev = temp->prev;
-
-			//Enough to free memory?
-			free(temp);
-			break;
-		}
-	}
+	free(node);
 }
 
 //--    isEmpty()   ///{{{1///////////////////////////////////////
@@ -487,6 +515,6 @@ static bool isEmpty(Node* head, Node* tail){
 
 //--    hasNext()   ///{{{1///////////////////////////////////////
 static bool hasNext(Node* cl){
-	return cl->next != NULL;
+	return cl->next->next != NULL;
 }
 //--///}}}1//////////////// vim:syntax=cpp:foldmethod=marker:ts=4:noexpandtab: 
