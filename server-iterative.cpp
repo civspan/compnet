@@ -99,6 +99,7 @@ struct Node{
 	ConnectionData* cData;
 	Node* prev;
 	Node* next;
+	int id;
 };
 
 
@@ -153,7 +154,7 @@ static int setup_server_socket( short port );
 
 /* Push new connection data into connection list and set tail to the new connection
  */
-static void push(ConnectionData* cd, Node* t);
+static void push(ConnectionData* cd, Node* t,int id);
 
 /* Remove connection and point prev.next to cl.next, and next.prev to cl.prev
  */
@@ -175,7 +176,11 @@ int main( int argc, char* argv[] )
 	head->cData = NULL;
 	tail->cData = NULL;
 	tail->prev = head;
+	tail->next = NULL;
 	head->next = tail;
+	head->prev = NULL;
+	head->id = 0;
+	tail->id = 1000;
 	
 	int serverPort = kServerPort;
 
@@ -202,6 +207,7 @@ int main( int argc, char* argv[] )
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
 	
+	int id = 1;
 	// loop forever
 	while( 1 )
 	{
@@ -247,61 +253,71 @@ int main( int argc, char* argv[] )
 			connData.sock = clientfd;
 			connData.state = eConnStateReceiving;
 			
-			push(&connData,tail);
+			push(&connData,tail, id);
+			id++;
+			printf("id = %d\n",id);
 		}
-		
-/*			FD_ZERO(&readfds);
-			FD_SET(clientfd,&readfds);
-			int retVal = select(clientfd+1,&readfds,NULL,NULL,&tv);
-			if( -1 == retVal){
-				perror("select() failed on clientfd");
-			} else if ( retVal > 0 && FD_ISSET(clientfd,&readfds)) {	*/		
-				// initialize connection data
+			
+		// initialize connection data
 
-				// Repeatedly receive and re-send data from the connection. When
-				// the connection closes, process_client_*() will return false, no
-				// further processing is done.
+		// Repeatedly receive and re-send data from the connection. When
+		// the connection closes, process_client_*() will return false, no
+		// further processing is done.
+		
+		FD_ZERO(&readfds);
+		FD_ZERO(&writefds);
+		
 		Node* temp = head;
 		while(hasNext(temp)){
 			temp = temp->next;
-			FD_ZERO(&readfds);
 			FD_SET(temp->cData->sock,&readfds);
-			FD_ZERO(&writefds);
 			FD_SET(temp->cData->sock,&writefds);
-			retVal = select(temp->cData->sock+1,&readfds,&writefds,NULL,&tv);
-			if(retVal == -1) perror("select() on list failed");
-			else if (retVal > 0) {
+			printf("temp->cData->sock = %d\n",temp->cData->sock);		
+		}
+		if(!isEmpty(head,tail)){
+			int retValRead = select(tail->prev->cData->sock+1,&readfds,NULL,NULL,&tv);
+			if(retValRead == -1) perror("select() on read list failed");
+			int retValWrite = select(tail->prev->cData->sock+1,NULL,&writefds,NULL,&tv);
+			if(retValWrite == -1) perror("select() on write list failed");
+		
+			printf("retValRead: %d, retValWrite: %d\n",retValRead,retValWrite);
+		
+			temp = head;
+			while(hasNext(temp) && (retValRead + retValWrite > 0)){
+				//printf("Connection data adress at %d, File descriptor id: %d\n",&(temp->next), temp->next->cData->sock);	
+				temp = temp->next;
 				if(temp->cData->state == eConnStateReceiving &&
 					FD_ISSET(temp->cData->sock,&readfds)){
 					if(!process_client_recv(*(temp->cData))){
-						Node* tempPrev = temp->prev;
 						close(temp->cData->sock);
 						remove(temp);
-						temp = tempPrev;
+						id--;
+						break;
 					}
-				}
+				} 
 				if(temp->cData->state == eConnStateSending &&
 					FD_ISSET(temp->cData->sock,&writefds)){
 					if(!process_client_send(*(temp->cData))) {
-						Node* tempPrev = temp->prev;
 						close(temp->cData->sock);
 						remove(temp);
-						temp = tempPrev;
+						id--;
+						break;
 					}
-				} // TODO: EFTERKOMMANDE ANSLUTNINGAR "TAR ÖVER"
-			}
-/*			bool processFurther = true;
-			while( processFurther )
-			{
-				while( processFurther && connData.state == eConnStateReceiving )
-					processFurther = process_client_recv( connData );
+					// TODO: EFTERKOMMANDE ANSLUTNINGAR "TAR ÖVER"
+				}
+	/*			bool processFurther = true;
+				while( processFurther )
+				{
+					while( processFurther && connData.state == eConnStateReceiving )
+						processFurther = process_client_recv( connData );
 
-				while( processFurther && connData.state == eConnStateSending )
-					processFurther = process_client_send( connData );
+					while( processFurther && connData.state == eConnStateSending )
+						processFurther = process_client_send( connData );
+				}
+				// done - close connection
+				remove(&connData,head);
+				;*/
 			}
-			// done - close connection
-			remove(&connData,head);
-			;*/
 		}
 	}
 
@@ -490,21 +506,21 @@ static bool is_invalid_connection( const ConnectionData& cd )
 }
 
 //--    push()   ///{{{1///////////////////////////////////////
-static void push(ConnectionData* cd, Node* tail){
+static void push(ConnectionData* cd, Node* tail, int ide){
 	Node* temp = (Node *) malloc(sizeof(Node));
 	temp->cData = cd;
 	temp->next = tail;
 	temp->prev = tail->prev;
-	printf("Vet ej");
 	tail->prev->next = temp;
 	tail->prev = temp;
+	temp->id = ide;
 }
 
 //--    remove()   ///{{{1///////////////////////////////////////
 static void remove(Node* node){
 	node->prev->next = node->next;
 	node->next->prev = node->prev;
-
+	
 	free(node);
 }
 
@@ -515,6 +531,6 @@ static bool isEmpty(Node* head, Node* tail){
 
 //--    hasNext()   ///{{{1///////////////////////////////////////
 static bool hasNext(Node* cl){
-	return cl->next->next != NULL;
+	return cl->next->cData != NULL;
 }
 //--///}}}1//////////////// vim:syntax=cpp:foldmethod=marker:ts=4:noexpandtab: 
