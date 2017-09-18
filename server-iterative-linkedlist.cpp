@@ -91,6 +91,17 @@ struct ConnectionData
 	char buffer[kTransferBufferSize+1];
 };
 
+/* Per-connection node for linked list
+ * Each node in the linked list points to connection data and the next data
+ * in the list of connections.
+ */
+struct Node{
+	ConnectionData* cData;
+	Node* prev;
+	Node* next;
+	int id;
+};
+
 
 //--    prototypes          ///{{{1///////////////////////////////////////////
 
@@ -143,10 +154,33 @@ static int setup_server_socket( short port );
 
 /* Push new connection data into connection list and set tail to the new connection
  */
+static void push(ConnectionData* cd, Node* t,int id);
+
+/* Remove connection and point prev.next to cl.next, and next.prev to cl.prev
+ */
+static void remove(Node* h);
+
+/* Check if list is empty (from cl onwards, intended use with head of list)
+ */
+static bool isEmpty(Node* h, Node* t);
+
+/* Check if there are more connections in the connection list
+ */
+static bool hasNext(Node* n);
 
 //--    main()              ///{{{1///////////////////////////////////////////
 int main( int argc, char* argv[] )
 {	
+	Node* head = (Node *) malloc(sizeof(Node));
+	Node* tail = (Node *) malloc(sizeof(Node));
+	head->cData = NULL;
+	tail->cData = NULL;
+	tail->prev = head;
+	tail->next = NULL;
+	head->next = tail;
+	head->prev = NULL;
+	head->id = 0;
+	tail->id = 1000;
 	
 	int serverPort = kServerPort;
 
@@ -172,9 +206,8 @@ int main( int argc, char* argv[] )
 	struct timeval tv;
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
-
-	std::vector<ConnectionData> connections;
 	
+	int id = 1;
 	// loop forever
 	while( 1 )
 	{
@@ -220,8 +253,11 @@ int main( int argc, char* argv[] )
 			connData.sock = clientfd;
 			connData.state = eConnStateReceiving;
 			
-			connections.push_back(connData);
+			push(&connData,tail, id);
+			id++;
+			printf("id = %d\n",id);
 		}
+			
 		// initialize connection data
 
 		// Repeatedly receive and re-send data from the connection. When
@@ -230,46 +266,59 @@ int main( int argc, char* argv[] )
 		
 		FD_ZERO(&readfds);
 		FD_ZERO(&writefds);
-		int maxSock = 0;
-		for(size_t i = 0; i < connections.size(); ++i){
-			if (maxSock < connections[i].sock)
-				maxSock = connections[i].sock;
-			FD_SET(connections[i].sock,&readfds);
-			FD_SET(connections[i].sock,&writefds);
-		//	printf("temp->cData->sock = %d\n",temp->cData->sock);		
-		}
-		if(0 < connections.size()){
-			
-			//printf("maxSock: %d\n",maxSock);
-			int retValRead = select(maxSock+1,&readfds,NULL,NULL,&tv);
-			//if(retValRead == -1) perror("select() on read list failed");
-			int retValWrite = select(maxSock+1,NULL,&writefds,NULL,&tv);
-			//if(retValWrite == -1) perror("select() on write list failed");
 		
-			//printf("retValRead: %d, retValWrite: %d\n",retValRead,retValWrite);
-			
-			for(size_t j = 0; j < connections.size()  && (retValRead + retValWrite > 0); ++j){
-				//printf("Connection data adress at %d, File descriptor id: %d\n",&connections[j] , connections[j].sock);	
-
-				if(connections[j].state == eConnStateReceiving &&
-					FD_ISSET(connections[j].sock,&readfds)){
-					if(!process_client_recv(connections[j])){
-						close(connections[j].sock);
+		Node* temp = head;
+		while(hasNext(temp)){
+			temp = temp->next;
+			FD_SET(temp->cData->sock,&readfds);
+			FD_SET(temp->cData->sock,&writefds);
+			printf("temp->cData->sock = %d\n",temp->cData->sock);		
+		}
+		if(!isEmpty(head,tail)){
+			int retValRead = select(tail->prev->cData->sock+1,&readfds,NULL,NULL,&tv);
+			if(retValRead == -1) perror("select() on read list failed");
+			int retValWrite = select(tail->prev->cData->sock+1,NULL,&writefds,NULL,&tv);
+			if(retValWrite == -1) perror("select() on write list failed");
+		
+			printf("retValRead: %d, retValWrite: %d\n",retValRead,retValWrite);
+		
+			temp = head;
+			while(hasNext(temp) && (retValRead + retValWrite > 0)){
+				//printf("Connection data adress at %d, File descriptor id: %d\n",&(temp->next), temp->next->cData->sock);	
+				temp = temp->next;
+				if(temp->cData->state == eConnStateReceiving &&
+					FD_ISSET(temp->cData->sock,&readfds)){
+					if(!process_client_recv(*(temp->cData))){
+						close(temp->cData->sock);
+						remove(temp);
+						id--;
+						break;
 					}
-				} else if(connections[j].state == eConnStateSending &&
-					FD_ISSET(connections[j].sock,&writefds)){
-					if(!process_client_send(connections[j])) {
-						close(connections[j].sock);
+				} 
+				if(temp->cData->state == eConnStateSending &&
+					FD_ISSET(temp->cData->sock,&writefds)){
+					if(!process_client_send(*(temp->cData))) {
+						close(temp->cData->sock);
+						remove(temp);
+						id--;
+						break;
 					}
+					// TODO: EFTERKOMMANDE ANSLUTNINGAR "TAR ÖVER"
 				}
+	/*			bool processFurther = true;
+				while( processFurther )
+				{
+					while( processFurther && connData.state == eConnStateReceiving )
+						processFurther = process_client_recv( connData );
+
+					while( processFurther && connData.state == eConnStateSending )
+						processFurther = process_client_send( connData );
+				}
+				// done - close connection
+				remove(&connData,head);
+				;*/
 			}
 		}
-		connections.erase(std::remove_if(
-				connections.begin(), 
-				connections.end(), 
-				&is_invalid_connection),
-			connections.end()
-			);
 	}
 
 	// The program will never reach this part, but for demonstration purposes,
@@ -296,7 +345,7 @@ static bool process_client_recv( ConnectionData& cd )
 
 		return false;
 	}
-	
+
 	if( -1 == ret )
 	{
 #		if VERBOSE
@@ -453,9 +502,35 @@ static bool set_socket_nonblocking( int fd )
 //--    is_invalid_connection()    ///{{{1////////////////////////////////////
 static bool is_invalid_connection( const ConnectionData& cd )
 {
-	if(cd.sock == -1) printf("socket %d invalid",cd.sock);
 	return cd.sock == -1;
 }
 
+//--    push()   ///{{{1///////////////////////////////////////
+static void push(ConnectionData* cd, Node* tail, int ide){
+	Node* temp = (Node *) malloc(sizeof(Node));
+	temp->cData = cd;
+	temp->next = tail;
+	temp->prev = tail->prev;
+	tail->prev->next = temp;
+	tail->prev = temp;
+	temp->id = ide;
+}
 
+//--    remove()   ///{{{1///////////////////////////////////////
+static void remove(Node* node){
+	node->prev->next = node->next;
+	node->next->prev = node->prev;
+	
+	free(node);
+}
+
+//--    isEmpty()   ///{{{1///////////////////////////////////////
+static bool isEmpty(Node* head, Node* tail){
+	return head->next == tail;
+}
+
+//--    hasNext()   ///{{{1///////////////////////////////////////
+static bool hasNext(Node* cl){
+	return cl->next->cData != NULL;
+}
 //--///}}}1//////////////// vim:syntax=cpp:foldmethod=marker:ts=4:noexpandtab: 
