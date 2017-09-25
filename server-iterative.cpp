@@ -166,7 +166,7 @@ int main( int argc, char* argv[] )
 	if( -1 == listenfd )
 		return 1;
 
-
+	// Initialize file descriptor sets for select() function
 	fd_set readfds;
 	fd_set writefds;
 	struct timeval tv;
@@ -214,52 +214,45 @@ int main( int argc, char* argv[] )
 				continue;
 		#			endif
 		
+			// initialize connection data		
 			ConnectionData connData;
 			memset( &connData, 0, sizeof(connData) );
-
 			connData.sock = clientfd;
 			connData.state = eConnStateReceiving;
 			
 			connections.push_back(connData);
 		}
-		// initialize connection data
-
-		// Repeatedly receive and re-send data from the connection. When
-		// the connection closes, process_client_*() will return false, no
-		// further processing is done.
 		
 		FD_ZERO(&readfds);
 		FD_ZERO(&writefds);
 		int maxSock = 0;
+		// Get number of highest file descriptor and populate fd_sets
 		for(size_t i = 0; i < connections.size(); ++i){
 			if (maxSock < connections[i].sock)
 				maxSock = connections[i].sock;
 			FD_SET(connections[i].sock,&readfds);
-			FD_SET(connections[i].sock,&writefds);
-		//	printf("temp->cData->sock = %d\n",temp->cData->sock);		
+			FD_SET(connections[i].sock,&writefds);		
 		}
+		// Run select() function and iterate through all active connections
+		// to see if there is data to handle on that connection.
 		if(0 < connections.size()){
-			
-			//printf("maxSock: %d\n",maxSock);
 			int retValRead = select(maxSock+1,&readfds,NULL,NULL,&tv);
-			//if(retValRead == -1) perror("select() on read list failed");
 			int retValWrite = select(maxSock+1,NULL,&writefds,NULL,&tv);
-			//if(retValWrite == -1) perror("select() on write list failed");
-		
-			//printf("retValRead: %d, retValWrite: %d\n",retValRead,retValWrite);
 			
-			for(size_t j = 0; j < connections.size()  && (retValRead + retValWrite > 0); ++j){
-				//printf("Connection data adress at %d, File descriptor id: %d\n",&connections[j] , connections[j].sock);	
-
+			for(size_t j = 0; j < connections.size() && (retValRead > 0 || retValWrite > 0); ++j){
 				if(connections[j].state == eConnStateReceiving &&
 					FD_ISSET(connections[j].sock,&readfds)){
 					if(!process_client_recv(connections[j])){
+						// Close socket if recv() fails, or shutdown signal is sent
 						close(connections[j].sock);
+						connections[j].sock = -1;
 					}
-				} else if(connections[j].state == eConnStateSending &&
+				} if(connections[j].state == eConnStateSending &&
 					FD_ISSET(connections[j].sock,&writefds)){
 					if(!process_client_send(connections[j])) {
+						// Close socket if send() fails
 						close(connections[j].sock);
+						connections[j].sock = -1;
 					}
 				}
 			}
@@ -453,7 +446,6 @@ static bool set_socket_nonblocking( int fd )
 //--    is_invalid_connection()    ///{{{1////////////////////////////////////
 static bool is_invalid_connection( const ConnectionData& cd )
 {
-	if(cd.sock == -1) printf("socket %d invalid",cd.sock);
 	return cd.sock == -1;
 }
 
